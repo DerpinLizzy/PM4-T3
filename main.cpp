@@ -7,12 +7,15 @@
 
 # define M_PI 3.14159265358979323846                    // Number pi
 # define MAX_VOLTS 12.0                                 // Maximum Voltage of Board [V]
+# define SDA_ADDR 18<<1
+# define I2C_SCL_SLAVE 19
+# define I2C_SDA_SLAVE 18
 
 // Runtime Variables ==================================================
 bool do_execute_main_task = false;                      // Toggled via user button(blue), used to activate main Task
 bool do_reset_all_once = false;                         // Toggled via user button(blue), used to reset certain variables once
 bool jail = false;
-int vial_count = 0;
+int vial_count = 8;
 
 // Load Cell Variables ==============================================
 constexpr float loadCellMaxWeight_kg = 0.1;                 // Maximum tolerable Weight on Load Cell
@@ -35,7 +38,8 @@ constexpr float weight_no_cap_low = 11.5;
 constexpr float weight_no_cap_high = 13.3;
 
 // Output Variables ============================================
-char faults[8] = { '0' };
+char faults[9] = {'0'};
+static int error_count = 0;
 
 // Global Objects ===================================================
 /* PinMap:
@@ -43,14 +47,13 @@ PB_10 / D6 - SPI2_SCK pin used for load cell SCK
 PB_4 / D5  - SPI1_MISO pin used for load cell data transfer from amplifier to controller
 
 PA_7 / D11 - SPI1_MOSI used for communication with Arduino board for output
-PB_8 / xxx - CAN1_RD (recieve)
-PB_9 / xxx - CAN1_TD (transmit)
+PB_8 / xxx - CAN1_RD (recieve)  -  I2C SCL
+PB_9 / xxx - CAN1_TD (transmit) -  I2C SDA
 */
 HX711 gauge(amplifierVoltage_V,PB_10,PB_4,amplifierGain);
 DebounceIn user_button(PC_13);                          // create InterruptIn interface object to evaluate user button falling and rising edge (no blocking code in ISR)
 DigitalOut user_led(LED1);
-DigitalOut com(PA_7);
-CAN can1(PA_6, PA_7);
+I2C com(I2C_SDA,I2C_SCL);
 
 // Function Prototypes ==============================================
 void user_button_pressed();                         // custom functions which gets executed when user button gets pressed
@@ -73,7 +76,7 @@ int main(){
     gauge.setGain();
     gauge.setDrift(amplifierDrift_V);
 
-    while(gauge.isReady() == false){}
+    while(gauge.isReady() == true){}
     amplifierOffset = gauge.read();
     printf("\nOffset = %f",amplifierOffset);
     
@@ -82,11 +85,8 @@ int main(){
     while (true){
     
     user_led = !user_led;
-    com = faults[1];
-    can1.write(CANMessage(1337, faults));
 
     main_task_timer.reset();
-    while(do_execute_main_task == false){}
         
         if (do_execute_main_task){
             do_execute_main_task = false;
@@ -120,6 +120,7 @@ int main(){
 
                 }
             }
+            com.write(SDA_ADDR,faults,error_count+1);
 
         // End if do_execute_main_task
         }else{
@@ -154,11 +155,11 @@ void measure_weight(void){
 }
 
 void waitForReset(){
-    while(true){}
 }
 
 void mark_error(int index,char *errors){
     errors[index] = ((char)(index + 1));
+    error_count++;
 }
 
 float voltToKilograms(float measuredVoltage, float maxLoad, float excitingVolt, float sensitivity){
