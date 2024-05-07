@@ -8,14 +8,14 @@
 # define M_PI 3.14159265358979323846                    // Number pi
 # define MAX_VOLTS 12.0                                 // Maximum Voltage of Board [V]
 # define SDA_ADDR 18<<1
-# define I2C_SCL_SLAVE 19
-# define I2C_SDA_SLAVE 18
+# define GEAR_RADIUS 44.6                               // mm
 
-// Runtime Variables ==================================================
+// Runtime Variables ================================================
 bool do_execute_main_task = false;                      // Toggled via user button(blue), used to activate main Task
 bool do_reset_all_once = false;                         // Toggled via user button(blue), used to reset certain variables once
 bool jail = false;
 int vial_count = 8;
+float x_pos = 0;
 
 // Load Cell Variables ==============================================
 constexpr float loadCellMaxWeight_kg = 0.1;                 // Maximum tolerable Weight on Load Cell
@@ -23,55 +23,61 @@ constexpr float loadCellSensitivity_V_V = 0.0006;           // Load Cell sensiti
 constexpr float amplifierVoltage_V = 5;                     // Amplifier Input/Vcc value in Volts
 constexpr float amplifierGain = 128;                        // Amplifier Gain 
 constexpr float amplifierDrift_V = 0.0002;                  // Amplifier Drift/Offset
-constexpr float measurementInaccuracy = 1.0635;             // 100% plus offset of 6.35%   
+constexpr float measurementInaccuracy = 1.0635;             // 100% plus offset of 6.35%
+constexpr int   main_task_period_ms = 100;                  // define main task period time in ms
 
 float readout = 0;                  // Raw, unadjusted readout of gauge
 float loadCellVoltage_mv = 0;       // Adjusted readout of gauge (read - zero value)
 float weight_g = 0;                 // Conversion results in kg
 float amplifierOffset = 0;          // Zero value
 
-// Check Variables =============================================
+// Check Variables ==================================================
 constexpr float weight_soll = 13.87;
 constexpr float weight_low_thresh = 13.4;
 constexpr float weight_high_thresh = 14.8;
 constexpr float weight_no_cap_low = 11.5;
 constexpr float weight_no_cap_high = 13.3;
 
-// Output Variables ============================================
+// Motor Variables ==================================================
+constexpr float sir_cumfrence = M_PI * GEAR_RADIUS;
+
+// Output Variables =================================================
 char faults[9] = {'0'};
 static int error_count = 0;
 
 // Global Objects ===================================================
 /* PinMap:
-PB_10 / D6 - SPI2_SCK pin used for load cell SCK
-PB_4 / D5  - SPI1_MISO pin used for load cell data transfer from amplifier to controller
-
-PA_7 / D11 - SPI1_MOSI used for communication with Arduino board for output
-PB_8 / xxx - CAN1_RD (recieve)  -  I2C SCL
-PB_9 / xxx - CAN1_TD (transmit) -  I2C SDA
+PB_10 - SPI2_SCK pin used for load cell SCK
+PB_4  - SPI1_MISO pin used for load cell data transfer from amplifier to controller
+PB_8  - I2C SCL pin used for communication with arduino
+PB_9  - I2C SDA pin used for communication with arduino
+PC_13 - on-board user button blue
+PB-13 - DigitalIn for limit switch
+LED1  - on-board LED 1
 */
 HX711 gauge(amplifierVoltage_V,PB_10,PB_4,amplifierGain);
-DebounceIn user_button(PC_13);                          // create InterruptIn interface object to evaluate user button falling and rising edge (no blocking code in ISR)
+DebounceIn user_button(BUTTON1);                          // create InterruptIn interface object to evaluate user button falling and rising edge (no blocking code in ISR)
+DebounceIn limit_switch(PB_13);
 DigitalOut user_led(LED1);
 I2C com(I2C_SDA,I2C_SCL);
 
 // Function Prototypes ==============================================
 void user_button_pressed();                         // custom functions which gets executed when user button gets pressed
+void limit_switch_event();
 float voltToKilograms(float measuredVoltage, float maxLoad, float excitingVolt, float sensitivity); // Convert Volt output to Weight in kg
 void mark_error(int index,char *errors);
 void waitForReset();
 void measure_weight();
 
-
-// main() runs in its own thread in the OS =========================
+// main() runs in its own thread in the OS ==========================
 int main(){
 
-    // attach button fall function to user button object, button has a pull-up resistor
+    // Interrput - Setup ============================================
     user_button.fall(&user_button_pressed);
-    const int main_task_period_ms = 100;               // define main task period time in ms e.g. 50 ms -> main task runs 20 times per second
-    Timer main_task_timer;                              // create Timer object which we use to run the main task every main_task_period_ms
+    limit_switch.fall(&limit_switch_event);
+    Timer main_task_timer;
    
-    // Load Cell - Seup ===================================================
+    // Load Cell - Setup ============================================
     gauge.powerUp();
     gauge.setGain();
     gauge.setDrift(amplifierDrift_V);
@@ -79,8 +85,11 @@ int main(){
     while(gauge.isReady() == true){}
     amplifierOffset = gauge.read();
     printf("\nOffset = %f",amplifierOffset);
+
+    // Motor - Setup ================================================
     
-    // Code ===============================================================
+
+    // Code =========================================================
     main_task_timer.start();
     while (true){
     
@@ -91,33 +100,38 @@ int main(){
         if (do_execute_main_task){
             do_execute_main_task = false;
 
-            // servo task 1
+            // feed dc motor: move to zeroing position
+            // limit switch: zero X-axis
+            // feed dc motor: move to first position weighing
 
             for(int i = 0; i < vial_count; i++){
                 measure_weight();
 
                 if(weight_g > weight_low_thresh && weight_g < weight_high_thresh){
                     
-                    // servo task 2
+                    /* Servo task 2:
+                        - feed dc: move rack backwards to clamp 
+                        - bottom clamp servo: grip tube
+                        - Z-axis servo: move top clamp down
+                        - top clamp servo: grip cap
+                        - Z-Axis servo: move up
+                         & clamp dc motor: turn to unscrew cap
+                        - feed dc motor: turn to deposite position
+                        - top clamp servo: release cap
+                        - feed dc motor: move tube to measure position
+                    */
 
                     measure_weight();
 
-                    if(weight_g > weight_no_cap_low && weight_g < weight_no_cap_high){
-                        
-                        //Servo task 3
+                    // feed dc motor: move rack to next position
 
-                    }else{
+                    if(weight_g < weight_no_cap_low || weight_g > weight_no_cap_high){
                         mark_error(i, faults);
-                        waitForReset();
-
                     }
 
                 }else{
                     mark_error(i, faults);
-                    // Servo feed to next position?
-                    // or just wait until reset?
-                    waitForReset();
-
+                    // feed DC motor turn to next position
                 }
             }
             com.write(SDA_ADDR,faults,error_count+1);
@@ -155,6 +169,7 @@ void measure_weight(void){
 }
 
 void waitForReset(){
+    while(true){}
 }
 
 void mark_error(int index,char *errors){
@@ -166,6 +181,12 @@ float voltToKilograms(float measuredVoltage, float maxLoad, float excitingVolt, 
     float weight = 0;
     weight = measuredVoltage * maxLoad/(excitingVolt * sensitivity);
     return weight;
+}
+
+void limit_switch_event(){
+    // stop feed motor
+    thread_sleep_for(10);
+    x_pos = 0;
 }
 
 void user_button_pressed(){
