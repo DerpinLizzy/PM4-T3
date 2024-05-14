@@ -6,6 +6,6 @@ mbed-os
 BUILD
 
 eigen
-pm2_drivers
 adafruit-st7735-library
 HX711
+pm2_drivers
