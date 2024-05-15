@@ -320,7 +320,7 @@ void move_rack(float length, PositionController & positionController_A){
 }
 
 void waitForReset(){
-    while(true){}
+    while(true){ thread_sleep_for(20); }
 }
 
 void mark_error(int index,char *errors){
