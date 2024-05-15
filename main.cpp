@@ -21,10 +21,16 @@ float x_pos = 430;
 
 // Check Variables ==================================================
 constexpr float weight_soll = 13.87;
-constexpr float weight_low_thresh = 13.4;
-constexpr float weight_high_thresh = 14.8;
+constexpr float weight_closed_low = 13.4;
+constexpr float weight_closed_high = 14.8;
 constexpr float weight_opened_low = 11.5;
 constexpr float weight_opened_high = 13.3;
+
+// constexpr float weight_soll = 0;
+// constexpr float weight_closed_low = -0.3 ;
+// constexpr float weight_closed_high = 0.3;
+// constexpr float weight_opened_low = -0.3;
+// constexpr float weight_opened_high = 0.3;
 
 // Load Cell Variables ==============================================
 constexpr float loadCellMaxWeight_kg = 0.1;                 // Maximum tolerable Weight on Load Cell
@@ -101,7 +107,7 @@ int main(){
     // Interrput - Setup ============================================
     Timer main_task_timer;
     user_button.fall(&user_button_pressed);
-    limit_switch.rise(&limit_switch_event);
+    limit_switch.fall(&limit_switch_event);
 
     // Load Cell - Setup ============================================
     gauge.powerUp();
@@ -112,7 +118,7 @@ int main(){
     thread_sleep_for(10);
     amplifierOffset = gauge.read();
     printf("\nOffset = %f\n",amplifierOffset);
-    printf("loadcell\n");
+    printf("loadcell init done\n");
 
     // Motor Setup: Servos [1 = Z-Axis // 2 = hold // 4 = crab Clamp]
     Servo servo_S1(PB_2);       // Big Servo - Z-Axis
@@ -173,20 +179,21 @@ int main(){
             // move rack to zeroing position
             while(!positioned){
                 move_rack(5, positionController_A);
-                thread_sleep_for(10);
             }
             thread_sleep_for(1000);
 
             // feed motor: move to first position weighing
-            move_rack(-25, positionController_A);
+            move_rack(-28, positionController_A);
             thread_sleep_for(1000);
 
             for(int i = 0; i < vial_count; i++){
+                printf("\nNow weighing: Position %d\n",i + 1 );
                 measure_weight();
 
-                if(weight_g > weight_low_thresh && weight_g < weight_high_thresh){
+                if(weight_g > weight_closed_low && weight_g < weight_closed_high){
                     
                     move_rack(15, positionController_A);     // clamp pos
+            waitForReset();
                     thread_sleep_for(500);
 
                     // Servo1 down
@@ -267,8 +274,9 @@ int main(){
             com.write(SDA_ADDR,faults,error_count+1);
             
             // eject rack
-            move_rack(45, positionController_A);
+            move_rack(-45, positionController_A);
             thread_sleep_for(500);
+            printf("Process done\n");
 
         // End if do_execute_main_task
         }else{
