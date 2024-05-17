@@ -20,17 +20,17 @@ int vial_count = 8;
 float x_pos = 430;
 
 // Check Variables ==================================================
-// constexpr float weight_soll = 13.87;
-// constexpr float weight_closed_low = 13.4;
-// constexpr float weight_closed_high = 14.8;
-// constexpr float weight_opened_low = 11.5;
-// constexpr float weight_opened_high = 13.3;
+constexpr float weight_soll = 14.12;            // Weight in grams with cap and 7.5ml of liquid
+constexpr float weight_closed_low = 13.40;       // Weight in grams with cap and 7.0ml of liquid
+constexpr float weight_closed_high = 14.63;      // Weight in grams with cap and 8.0ml of liquid
+constexpr float weight_opened_low = 12.1;       // Weight in grams without cap and 7.0ml of liquid
+constexpr float weight_opened_high = 13.33;      // Weight in grams without cap and 8.0ml of liquid
 
-constexpr float weight_soll = 0;
-constexpr float weight_closed_low = 0;
-constexpr float weight_closed_high = 7;
-constexpr float weight_opened_low = 0;
-constexpr float weight_opened_high = 7;
+// Testing values.
+// constexpr float weight_closed_low = 0;
+// constexpr float weight_closed_high = 15;
+// constexpr float weight_opened_low = 0;
+// constexpr float weight_opened_high = 15;
 
 // Load Cell Variables ==============================================
 constexpr float loadCellMaxWeight_kg = 0.1;                 // Maximum tolerable Weight on Load Cell
@@ -145,9 +145,9 @@ int main(){
     thread_sleep_for(1000);
     servo_S2.disable();
 
-    // Claw start position
+    // Crab Claw start position
     servo_S4.enable();
-    servo_S4.setNormalisedAngle(0.09f);
+    servo_S4.setNormalisedAngle(0.105f);
     thread_sleep_for(1000);
     servo_S4.disable();
     printf("servo init done\n");
@@ -170,7 +170,8 @@ int main(){
     float max_speed_rps_B = 0.5f; // define maximum speed that the position controller is changig the speed, has to be smaller or equal to kn * max_voltage
     positionController_B.setMaxVelocityRPS(max_speed_rps_B);
 
-    printf("dc init done\n");
+    printf("dcm init done\n");
+
     // Code =========================================================
     main_task_timer.start();
     while (true){
@@ -179,6 +180,7 @@ int main(){
 
         main_task_timer.reset();
 
+        // Servo Configuration loops
         // float a = 0.02;
         // while(true){
         //     printf("%f\n",a);
@@ -192,8 +194,8 @@ int main(){
         //     }
         //     do_execute_main_task = false;
         //     a += 0.002;
-
         // }
+
         if (do_execute_main_task){
             printf("is on\n");
             printf("x_pos = %f\n", x_pos);
@@ -205,7 +207,7 @@ int main(){
             thread_sleep_for(1000);
 
             // feed motor: move to first position weighing
-            move_rack(-31, positionController_A);
+            move_rack(-25, positionController_A);
             thread_sleep_for(1500);
 
             for(int i = 0; i < vial_count; i++){
@@ -215,7 +217,7 @@ int main(){
                 if(weight_g > weight_closed_low && weight_g < weight_closed_high){
 
                     // clamp pos                    
-                    move_rack(18, positionController_A);
+                    move_rack(15, positionController_A);
                     thread_sleep_for(500);
 
                     // Servo1 down
@@ -257,18 +259,13 @@ int main(){
                     angle_tracker_b = positionController_B.getRotation();
                     positionController_B.setDesiredRotation(angle_tracker_b + 1.2*0.08f);
                     thread_sleep_for(4000);
-                    // servo_S1.enable();
-                    // servo_S1.setNormalisedAngle(0.02f);
-                    // thread_sleep_for(1000);
-                    // servo_S1.disable();
-                    // thread_sleep_for(100);
 
                     // deposite pos
-                    move_rack(-25, positionController_A);
+                    move_rack(-18, positionController_A);
                     thread_sleep_for(1000);
 
                     //Servo4 Open clamp
-                    servo_S4.setNormalisedAngle(0.09f);
+                    servo_S4.setNormalisedAngle(0.105f);
                     thread_sleep_for(1000);
                     servo_S4.disable();
                     thread_sleep_for(50);
@@ -295,14 +292,14 @@ int main(){
             }
             //Servo1 start position
             servo_S1.enable();
-            servo_S1.setNormalisedAngle(0.03f);
+            servo_S1.setNormalisedAngle(0.02f);
             thread_sleep_for(1000);
             servo_S1.disable();
             thread_sleep_for(50);
                 
             // Claw start position
             servo_S4.enable();
-            servo_S4.setNormalisedAngle(0.075f);
+            servo_S4.setNormalisedAngle(0.105f);
             thread_sleep_for(1000);
             servo_S4.disable();
             thread_sleep_for(50);
@@ -334,32 +331,29 @@ int main(){
 void measure_weight(void){
     weight_g = 0;
     for(int j = 0 ; j < 5 ; j++){
-        while(gauge.isReady() == false){}
+        while(gauge.isReady() == true){}
+        thread_sleep_for(50);
         readout = gauge.read();
         loadCellVoltage_mv = readout - amplifierOffset;
         weight_g += voltToKilograms(loadCellVoltage_mv, loadCellMaxWeight_kg, amplifierVoltage_V, loadCellSensitivity_V_V);
-        thread_sleep_for(5);
+        thread_sleep_for(50);
     }
     weight_g /= 5;
-    weight_g *= measurementInaccuracy;
+    weight_g *= (measurementInaccuracy - 0.0194);
     if(weight_g < 0){
         weight_g *= -1;
     }
 
-    // printf("\nLoadcell Readout: %f",readout);
-    // printf("\nAdjusted Readout: %f",loadCellVoltage_mv);
     printf("\nCurrent weight in grams: %f\n", weight_g);
     thread_sleep_for(1000);
 }
 
 void move_rack(float length, PositionController & positionController_A){
     x_pos += length;
-    // length *= 1.875;
     float revolutions = length/l_factor;
     float angle_tracker = positionController_A.getRotation();
     thread_sleep_for(50);
     positionController_A.setDesiredRotation((angle_tracker + revolutions));
-    // printf("Current speed: %f m/s\n", M_PI * GEAR_DIAMETER * positionController_A.getSpeedRPS());
 }
 
 void waitForReset(){
@@ -367,8 +361,9 @@ void waitForReset(){
 }
 
 void mark_error(int index,char *errors){
-    errors[index] = ((char)(index + 1));
+    errors[index] = ((char)(index + 49));
     error_count++;
+    printf("Posiiotn %d is faulty!!\n", index + 1);
 }
 
 float voltToKilograms(float measuredVoltage, float maxLoad, float excitingVolt, float sensitivity){
