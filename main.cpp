@@ -26,12 +26,6 @@ constexpr float weight_closed_high = 14.63;      // Weight in grams with cap and
 constexpr float weight_opened_low = 12.1;       // Weight in grams without cap and 7.0ml of liquid
 constexpr float weight_opened_high = 13.33;      // Weight in grams without cap and 8.0ml of liquid
 
-// Testing values.
-// constexpr float weight_closed_low = 0;
-// constexpr float weight_closed_high = 15;
-// constexpr float weight_opened_low = 0;
-// constexpr float weight_opened_high = 15;
-
 // Load Cell Variables ==============================================
 constexpr float loadCellMaxWeight_kg = 0.1;                 // Maximum tolerable Weight on Load Cell
 constexpr float loadCellSensitivity_V_V = 0.0006;           // Load Cell sensitivity displayed usually in mV/V, here in V/V.
